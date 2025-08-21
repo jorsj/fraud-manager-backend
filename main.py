@@ -42,14 +42,14 @@ DIALOGFLOW_MESSAGES = {
     "ALLOWED_NUMBER": "Número de teléfono permitido.",
 }
 
-# Get the database ID from an environment variable.
+# Get the Firestore database id from an environment variable.
 # Fall back to '(default)' if the variable is not set, for local testing or backward compatibility.
-DATABASE_ID = os.environ.get("DATABASE_ID", "(default)")
+FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "(default)")
 
 # Initialize the Firestore client globally, specifying the database to use.
-db = firestore.Client(database=DATABASE_ID)
+db = firestore.Client(database=FIRESTORE_DATABASE_ID)
 
-logging.info(f"Successfully connected to Firestore database: '{DATABASE_ID}'")
+logging.info(f"Successfully connected to Firestore database: '{FIRESTORE_DATABASE_ID}'")
 
 # --- Async Loop Management ---
 # Create a new event loop for background tasks
@@ -138,7 +138,7 @@ def check_phone_number():
     log_payload = {
         "phone_number": phone_number,
         "queried_national_id": queried_national_id,
-        "database_id": DATABASE_ID,
+        "database_id": FIRESTORE_DATABASE_ID,
     }
 
     # Register the new query synchronously to ensure it's recorded immediately
@@ -195,7 +195,7 @@ async def update_blocked_phone_numbers(phone_number: str, queried_national_id: s
     log_payload = {
         "phone_number": phone_number,
         "queried_national_id": queried_national_id,
-        "database_id": DATABASE_ID,
+        "database_id": FIRESTORE_DATABASE_ID,
     }
 
     # Check by day, week, and month using configured periods

@@ -34,8 +34,8 @@ read -p "Enter a name for the Service Account [default: fraud-manager-backend-sa
 SERVICE_ACCOUNT_NAME=${SERVICE_ACCOUNT_NAME:-fraud-manager-backend-sa}
 
 # 5. Get Firestore Database ID
-read -p "Enter the ID for the Firestore Database [default: fraud-manager]: " DATABASE_ID
-DATABASE_ID=${DATABASE_ID:-fraud-manager}
+read -p "Enter the ID for the Firestore Database [default: fraud-manager]: " FIRESTORE_DATABASE_ID
+FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-fraud-manager}
 
 
 # --- Configuration Summary and Confirmation ---
@@ -45,7 +45,7 @@ echo "Project ID:            ${PROJECT_ID}"
 echo "Region:                ${REGION}"
 echo "Service Name:          ${SERVICE_NAME}"
 echo "Service Account Name:  ${SERVICE_ACCOUNT_NAME}"
-echo "Firestore Database ID: ${DATABASE_ID}"
+echo "Firestore Database ID: ${FIRESTORE_DATABASE_ID}"
 echo "--------------------------"
 echo
 
@@ -77,17 +77,17 @@ gcloud services enable \
   iam.googleapis.com
 
 # 3. Create Firestore Named Database if it doesn\'t exist
-echo "Step 3: Checking for and creating Firestore database: ${DATABASE_ID}"
-if gcloud firestore databases describe --database=${DATABASE_ID} &> /dev/null; then
-    echo "Firestore database '${DATABASE_ID}' already exists."
+echo "Step 3: Checking for and creating Firestore database: ${FIRESTORE_DATABASE_ID}"
+if gcloud firestore databases describe --database=${FIRESTORE_DATABASE_ID} &> /dev/null; then
+    echo "Firestore database '${FIRESTORE_DATABASE_ID}' already exists."
 else
-    echo "Firestore database '${DATABASE_ID}' not found. Creating in region ${REGION}..."
+    echo "Firestore database '${FIRESTORE_DATABASE_ID}' not found. Creating in region ${REGION}..."
     gcloud firestore databases create \
-      --database=${DATABASE_ID} \
+      --database=${FIRESTORE_DATABASE_ID} \
       --location=${REGION} \
       --type=firestore-native \
       --delete-protection
-    echo "Database '${DATABASE_ID}' created successfully."
+    echo "Database '${FIRESTORE_DATABASE_ID}' created successfully."
 fi
 
 # 4. Create a dedicated service account for the service
@@ -117,7 +117,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --region ${REGION} \
   --no-allow-unauthenticated \
   --service-account ${SERVICE_ACCOUNT_EMAIL} \
-  --set-env-vars DATABASE_ID="${DATABASE_ID}",MAX_DISTINCT_NATIONAL_IDS=3,DAY_PERIOD=1,WEEK_PERIOD=7,MONTH_PERIOD=30
+  --set-env-vars FIRESTORE_DATABASE_ID="${FIRESTORE_DATABASE_ID}",MAX_DISTINCT_NATIONAL_IDS=3,DAY_PERIOD=1,WEEK_PERIOD=7,MONTH_PERIOD=30
 
 # 7. Retrieve the service URL after deployment
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --platform managed --region ${REGION} --format="value(status.url)")
@@ -127,7 +127,7 @@ echo "✅ Deployment Successful!"
 echo "---"
 echo "Service Name: ${SERVICE_NAME}"
 echo "Region: ${REGION}"
-echo "Database ID: ${DATABASE_ID}"
+echo "Database ID: ${FIRESTORE_DATABASE_ID}"
 echo "Service URL: ${SERVICE_URL}"
 echo "---"
 echo "You can now use this URL as the webhook endpoint in your Dialogflow CX agent."
