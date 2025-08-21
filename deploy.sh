@@ -1,92 +1,133 @@
 #!/bin/bash
-#
-# deploy.sh - Firestore Database and Collection Setup Script
-#
-# This script performs the following actions for a specified Google Cloud project:
-# 1. Checks for and creates a new Firestore database if it doesn't exist.
-# 2. Creates the 'queries', 'manual_blocks', and 'fraud_configuration' collections
-#    within the database by adding a sample document to each.
-#
-
-# --- Configuration ---
-# IMPORTANT: Set your Google Cloud Project ID here.
-PROJECT_ID="your-gcp-project-id"
-
-# The ID for the new Firestore database.
-DATABASE_ID="fraud_manager"
-
-# The location for the new Firestore database. This cannot be changed later.
-# Choose a multi-region (e.g., nam5, eur3) or a regional location (e.g., us-central1).
-# See full list: https://cloud.google.com/firestore/docs/locations
-LOCATION="nam5"
-
-# --- Script Logic ---
 
 # Exit immediately if a command exits with a non-zero status.
-set -euo pipefail
+set -e
 
-# Define color codes for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# --- Introduction ---
+echo "--- Interactive Cloud Run Service Deployment ---"
+echo "This script will guide you through deploying the Fraud Manager Backend."
+echo "Please provide the following details. Press Enter to accept the default values."
+echo
 
-# --- Pre-flight Check ---
-if [ "$PROJECT_ID" == "your-gcp-project-id" ]; then
-    echo -e "${YELLOW}ERROR: Please update the PROJECT_ID variable in this script before running.${NC}"
+# --- Gather User Input ---
+
+# 1. Get Project ID, suggesting the currently configured gcloud project as a default
+CURRENT_PROJECT=$(gcloud config get-value project 2>/dev/null || echo "")
+read -p "Enter your Google Cloud Project ID [default: ${CURRENT_PROJECT}]: " PROJECT_ID
+PROJECT_ID=${PROJECT_ID:-$CURRENT_PROJECT}
+
+if [[ -z "$PROJECT_ID" ]]; then
+    echo "Error: Project ID is a required field."
     exit 1
 fi
 
-echo -e "${BLUE}--- Firestore Deployment Script ---${NC}"
-echo "Project:      ${PROJECT_ID}"
-echo "Database ID:  ${DATABASE_ID}"
-echo "Location:     ${LOCATION}"
+# 2. Get Region
+read -p "Enter the GCP Region (e.g., us-central1) [default: us-central1]: " REGION
+REGION=${REGION:-us-central1}
+
+# 3. Get Service Name
+read -p "Enter a name for the Cloud Run Service [default: fraud-manager-backend]: " SERVICE_NAME
+SERVICE_NAME=${SERVICE_NAME:-fraud-manager-backend}
+
+# 4. Get Service Account Name
+read -p "Enter a name for the Service Account [default: fraud-manager-backend-sa]: " SERVICE_ACCOUNT_NAME
+SERVICE_ACCOUNT_NAME=${SERVICE_ACCOUNT_NAME:-fraud-manager-backend-sa}
+
+# 5. Get Firestore Database ID
+read -p "Enter the ID for the Firestore Database [default: fraud-manager]: " DATABASE_ID
+DATABASE_ID=${DATABASE_ID:-fraud-manager}
+
+
+# --- Configuration Summary and Confirmation ---
+echo
+echo "--- Deployment Summary ---"
+echo "Project ID:            ${PROJECT_ID}"
+echo "Region:                ${REGION}"
+echo "Service Name:          ${SERVICE_NAME}"
+echo "Service Account Name:  ${SERVICE_ACCOUNT_NAME}"
+echo "Firestore Database ID: ${DATABASE_ID}"
+echo "--------------------------"
 echo
 
-# Set the active project for all subsequent gcloud commands
-gcloud config set project "$PROJECT_ID"
-
-# --- 1. Create Firestore Database (if it doesn't exist) ---
-echo -e "${BLUE}STEP 1: Checking for Firestore database '${DATABASE_ID}'...${NC}"
-
-# The `describe` command fails if the database doesn't exist. We leverage this.
-if gcloud firestore databases describe --database="$DATABASE_ID" &> /dev/null; then
-    echo -e "${YELLOW}Database '${DATABASE_ID}' already exists. Skipping creation.${NC}"
-else
-    echo "Database not found. Creating Firestore database '${DATABASE_ID}' in location '${LOCATION}'..."
-    gcloud firestore databases create --database="$DATABASE_ID" --location="$LOCATION" --type=firestore-native
-    echo -e "${GREEN}Database '${DATABASE_ID}' created successfully.${NC}"
+read -p "Is this configuration correct? (Y/n): " CONFIRM
+CONFIRM=${CONFIRM:-y}
+# Use a regex to check if the input starts with 'y' or 'Y'
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo "Deployment cancelled by user."
+    exit 1
 fi
-echo
-
-# --- 2. Create Collections by Adding Sample Documents ---
-echo -e "${BLUE}STEP 2: Creating collections in database '${DATABASE_ID}'...${NC}"
-
-# Create the 'queries' collection
-echo "--> Creating 'queries' collection..."
-gcloud firestore documents write "queries/SAMPLE_QUERY_001" \
-  --database="$DATABASE_ID" \
-  "phone_number:string=+56912345678" \
-  "national_id:string=12345678-9" \
-  "query_timestamp:timestamp=2023-10-27T10:00:00Z"
-
-# Create the 'manual_blocks' collection
-echo "--> Creating 'manual_blocks' collection..."
-gcloud firestore documents write "manual_blocks/+56987654321" \
-  --database="$DATABASE_ID" \
-  "reason:string=Reported by customer for fraudulent call" \
-  "block_timestamp:timestamp=2023-10-27T10:05:00Z" \
-  "agent_id:string=agent-007"
-
-# Create the 'fraud_configuration' collection
-echo "--> Creating 'fraud_configuration' collection..."
-gcloud firestore documents write "fraud_configuration/national_id_thresholds" \
-  --database="$DATABASE_ID" \
-  "unique_national_id_limit:integer=3" \
-  "day_period:integer=1" \
-  "week_period:integer=7" \
-  "month_period:integer=30"
 
 echo
-echo -e "${GREEN}All collections created successfully.${NC}"
-echo -e "${GREEN}--- Deployment Complete ---${NC}"
+echo "--- Starting Deployment for Project: ${PROJECT_ID} ---"
+
+# --- Derived Variables ---
+SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# 1. Set the active project
+echo "Step 1: Setting active project to ${PROJECT_ID}"
+gcloud config set project ${PROJECT_ID}
+
+# 2. Enable necessary APIs
+echo "Step 2: Enabling required Google Cloud APIs..."
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  firestore.googleapis.com \
+  logging.googleapis.com \
+  iam.googleapis.com
+
+# 3. Create Firestore Named Database if it doesn\'t exist
+echo "Step 3: Checking for and creating Firestore database: ${DATABASE_ID}"
+if gcloud firestore databases describe --database=${DATABASE_ID} &> /dev/null; then
+    echo "Firestore database '${DATABASE_ID}' already exists."
+else
+    echo "Firestore database '${DATABASE_ID}' not found. Creating in region ${REGION}..."
+    gcloud firestore databases create \
+      --database=${DATABASE_ID} \
+      --location=${REGION} \
+      --type=firestore-native \
+      --delete-protection
+    echo "Database '${DATABASE_ID}' created successfully."
+fi
+
+# 4. Create a dedicated service account for the service
+echo "Step 4: Checking for and creating service account: ${SERVICE_ACCOUNT_NAME}"
+if gcloud iam service-accounts list --filter="email=${SERVICE_ACCOUNT_EMAIL}" | grep -q ${SERVICE_ACCOUNT_EMAIL}; then
+  echo "Service account ${SERVICE_ACCOUNT_NAME} already exists."
+else
+  gcloud iam service-accounts create ${SERVICE_ACCOUNT_NAME} \
+    --display-name="Service Account for ${SERVICE_NAME}"
+fi
+
+# 5. Grant the service account permissions to access Firestore
+echo "Step 5: Granting Firestore User role to the service account..."
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+  --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
+  --role="roles/datastore.user" \
+  --condition=None # Explicitly set no condition to avoid prompts
+
+# 6. Deploy the Cloud Run Service
+echo "Step 6: Deploying the Cloud Run Service '${SERVICE_NAME}'..."
+gcloud run deploy ${SERVICE_NAME} \
+  --source . \
+  --platform managed \
+  --no-cpu-throttling \
+  --min-instances 1 \
+  --max-instances 4 \
+  --region ${REGION} \
+  --no-allow-unauthenticated \
+  --service-account ${SERVICE_ACCOUNT_EMAIL} \
+  --set-env-vars DATABASE_ID="${DATABASE_ID}",MAX_DISTINCT_NATIONAL_IDS=3,DAY_PERIOD=1,WEEK_PERIOD=7,MONTH_PERIOD=30
+
+# 7. Retrieve the service URL after deployment
+SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --platform managed --region ${REGION} --format="value(status.url)")
+
+echo "---"
+echo "✅ Deployment Successful!"
+echo "---"
+echo "Service Name: ${SERVICE_NAME}"
+echo "Region: ${REGION}"
+echo "Database ID: ${DATABASE_ID}"
+echo "Service URL: ${SERVICE_URL}"
+echo "---"
+echo "You can now use this URL as the webhook endpoint in your Dialogflow CX agent."
