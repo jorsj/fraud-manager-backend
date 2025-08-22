@@ -90,8 +90,17 @@ else
     echo "Database '${FIRESTORE_DATABASE_ID}' created successfully."
 fi
 
-# 4. Create a dedicated service account for the service
-echo "Step 4: Checking for and creating service account: ${SERVICE_ACCOUNT_NAME}"
+# 4. Create Firestore composite index for queries collection
+echo "Step 4: Creating Firestore composite index for queries collection..."
+gcloud firestore indexes composite create \
+  --database=${FIRESTORE_DATABASE_ID} \
+  --collection-group=queries \
+  --field-config=field-path=phone_number,order=ascending \
+  --field-config=field-path=query_timestamp,order=ascending \
+  --field-config=field-path=__name__,order=ascending || true
+
+# 5. Create a dedicated service account for the service
+echo "Step 5: Checking for and creating service account: ${SERVICE_ACCOUNT_NAME}"
 if gcloud iam service-accounts list --filter="email=${SERVICE_ACCOUNT_EMAIL}" | grep -q ${SERVICE_ACCOUNT_EMAIL}; then
   echo "Service account ${SERVICE_ACCOUNT_NAME} already exists."
 else
@@ -99,15 +108,15 @@ else
     --display-name="Service Account for ${SERVICE_NAME}"
 fi
 
-# 5. Grant the service account permissions to access Firestore
-echo "Step 5: Granting Firestore User role to the service account..."
+# 6. Grant the service account permissions to access Firestore
+echo "Step 6: Granting Firestore User role to the service account..."
 gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
   --role="roles/datastore.user" \
   --condition=None # Explicitly set no condition to avoid prompts
 
-# 6. Deploy the Cloud Run Service
-echo "Step 6: Deploying the Cloud Run Service '${SERVICE_NAME}'..."
+# 7. Deploy the Cloud Run Service
+echo "Step 7: Deploying the Cloud Run Service '${SERVICE_NAME}'..."
 gcloud run deploy ${SERVICE_NAME} \
   --source . \
   --platform managed \
@@ -119,7 +128,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --service-account ${SERVICE_ACCOUNT_EMAIL} \
   --set-env-vars FIRESTORE_DATABASE_ID="${FIRESTORE_DATABASE_ID}",MAX_DISTINCT_NATIONAL_IDS=3,DAY_PERIOD=1,WEEK_PERIOD=7,MONTH_PERIOD=30
 
-# 7. Retrieve the service URL after deployment
+# 8. Retrieve the service URL after deployment
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --platform managed --region ${REGION} --format="value(status.url)")
 
 echo "---"
