@@ -7,7 +7,7 @@
     *   `national_id` (String): The National ID that was queried.
     *   `query_timestamp` (Timestamp): The exact date and time of the query, crucial for period-based filtering.
 
-**`manual_blocks`**: Contains phone numbers that have been manually blocked by customer service agents.
+**`blocked_phone_numbers`**: Contains phone numbers that have been manually blocked by customer service agents.
 *   **Document ID**: The phone number to be blocked. Using the number as the ID allows for very fast and efficient existence checks.
 *   **Fields (Optional for auditing)**:
     *   `reason` (String): Reason for the block (e.g., "Reported by customer for fraudulent call").
