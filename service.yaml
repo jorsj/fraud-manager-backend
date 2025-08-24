@@ -1,0 +1,61 @@
+# This is a service definition for the Fraud Manager Backend for Google Cloud Run.
+#
+# You can use this file with the `gcloud run services replace` command:
+#   gcloud run services replace service.yaml --region <REGION>
+#
+# Before using, you need to replace the following placeholders:
+# - PROJECT_ID: Your Google Cloud Project ID.
+# - REGION: The GCP region for the service (e.g., us-central1).
+#
+# Note: The `image` will be automatically updated by the Cloud Build process
+# when you deploy from source using the `deploy.sh` script. If you are deploying
+# a pre-built image, you should update the `image` field with the correct path.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: fraud-manager-backend
+  annotations:
+    # Controls who can access the service. 'internal' means only from within the same project or VPC network.
+    # This corresponds to the --no-allow-unauthenticated flag.
+    run.googleapis.com/ingress: internal
+spec:
+  template:
+    metadata:
+      annotations:
+        # Do not throttle CPU when not processing requests
+        run.googleapis.com/cpu-throttling: "false"
+        # Set min and max instances for scaling
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "4"
+    spec:
+      # The service account for the service to use.
+      serviceAccountName: fraud-manager-backend-sa@PROJECT_ID.iam.gserviceaccount.com # <-- Replace PROJECT_ID
+      containers:
+        # The image will be created by Cloud Build when deploying from source.
+      - image: REGION-docker.pkg.dev/PROJECT_ID/cloud-run-source-deploy/fraud-manager-backend # <-- Replace REGION and PROJECT_ID
+        ports:
+        - name: http1 # Default port for Cloud Run
+          containerPort: 8080
+        env:
+        - name: FIRESTORE_DATABASE_ID
+          value: "fraud-manager"
+        - name: MAX_DISTINCT_NATIONAL_IDS
+          value: "3"
+        - name: DAY_PERIOD
+          value: "1"
+        - name: WEEK_PERIOD
+          value: "7"
+        - name: MONTH_PERIOD
+          value: "30"
+        # Probe to check if the container has started successfully
+        startupProbe:
+          httpGet:
+            path: /healthcheck
+        # Probe to check if the container is still running
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+  traffic:
+  - percent: 100
+    latestRevision: true

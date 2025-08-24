@@ -14,15 +14,16 @@ The service checks if a phone number has been used to query an excessive number 
 
 ## Architecture
 
-The application is built with Python using the Flask framework and is served by Gunicorn. It exposes a single webhook endpoint that Dialogflow CX calls.
+The application is built with Python using the **FastAPI** framework and is served by **Uvicorn**. It exposes two main webhook endpoints that Dialogflow CX calls in sequence, along with a healthcheck endpoint.
 
 1.  A call arrives at Dialogflow CX.
-2.  Dialogflow CX triggers a webhook, sending a request to this Cloud Run service. The request includes the caller's phone number and the national ID they are querying.
-3.  The service immediately records the query in Firestore.
-4.  It checks if the phone number is in the `blocked_phone_numbers` collection.
+2.  Dialogflow CX triggers a webhook to the `/phone-numbers:check` endpoint.
+3.  The service checks if the phone number is in the `blocked_phone_numbers` collection.
     *   If **blocked**, it immediately responds to Dialogflow telling it to block the interaction.
-    *   If **not blocked**, it responds to Dialogflow to allow the interaction and, in the background, triggers an asynchronous process.
-5.  The asynchronous process checks the fraud rules based on the query history for that phone number. If the rules are violated, the number is added to the `blocked_phone_numbers` collection for future requests.
+    *   If **not blocked**, it responds to Dialogflow to allow the interaction.
+4.  If allowed, Dialogflow CX proceeds and triggers a second webhook to the `/queries` endpoint.
+5.  The `/queries` endpoint registers the query details and triggers a background task.
+6.  The background task runs the fraud detection logic. It checks if the phone number has been associated with too many distinct national IDs. If a rule is violated, the number is added to the `blocked_phone_numbers` collection for future checks.
 
 ## Firestore Database Design
 
@@ -46,7 +47,7 @@ The service relies on two main Firestore collections:
 
 *   [Google Cloud SDK (`gcloud`)](https://cloud.google.com/sdk/docs/install)
 *   [Podman](https://podman.io/getting-started/installation) (or Docker)
-*   Python 3.12
+*   Python 3.13
 
 ## Local Development
 
@@ -138,23 +139,26 @@ The application is configured via environment variables.
 | `WEEK_PERIOD`               | The duration in days for the "week" fraud check period.                          | `7`                 |
 | `MONTH_PERIOD`              | The duration in days for the "month" fraud check period.                         | `30`                |
 
-## API Endpoint
+## API Endpoints
 
-### `POST /`
+### `GET /healthcheck`
 
-This is the main webhook endpoint for Dialogflow CX.
+A simple endpoint to verify that the service is running.
 
-**Request Body:**
-
-The service expects a JSON payload with the following structure:
-
+**Response Body:**
 ```json
 {
-  "sessionInfo": {
-    "parameters": {
-      "national_id": "12.345.678-9"
-    }
-  },
+  "status": "ok"
+}
+```
+
+### `POST /phone-numbers:check`
+
+This is the first webhook called by Dialogflow CX to check if a phone number is blocked.
+
+**Request Body:**
+```json
+{
   "payload": {
     "telephony": {
       "caller_id": "+56912345678"
@@ -163,12 +167,7 @@ The service expects a JSON payload with the following structure:
 }
 ```
 
-**Response Body:**
-
-The service returns a JSON object that sets the `block` session parameter for Dialogflow CX.
-
-*   **On Success (Allowed):**
-
+**Response Body (Allowed):**
 ```json
 {
   "fulfillment_response": {
@@ -190,8 +189,7 @@ The service returns a JSON object that sets the `block` session parameter for Di
 }
 ```
 
-*   **On Success (Blocked):**
-
+**Response Body (Blocked):**
 ```json
 {
   "fulfillment_response": {
@@ -199,7 +197,7 @@ The service returns a JSON object that sets the `block` session parameter for Di
       {
         "text": {
           "text": [
-            "Este número de teléfono ha sido bloqueado por actividad sospechosa. Por favor, contacte con soporte."
+            "Este número de teléfono ha sido bloqueado por actividad sospechosa."
           ]
         }
       }
@@ -210,5 +208,32 @@ The service returns a JSON object that sets the `block` session parameter for Di
       "block": true
     }
   }
+}
+```
+
+### `POST /queries`
+
+This is the second webhook called by Dialogflow CX (if the number was not blocked) to register the query and trigger the fraud detection analysis.
+
+**Request Body:**
+```json
+{
+  "sessionInfo": {
+    "parameters": {
+      "national_id": "12.345.678-9"
+    }
+  },
+  "payload": {
+    "telephony": {
+      "caller_id": "+56912345678"
+    }
+  }
+}
+```
+
+**Response Body:**
+```json
+{
+  "status": "ok"
 }
 ```

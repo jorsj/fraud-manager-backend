@@ -76,7 +76,7 @@ gcloud services enable \
   logging.googleapis.com \
   iam.googleapis.com
 
-# 3. Create Firestore Named Database if it doesn\'t exist
+# 3. Create Firestore Named Database if it doesn't exist
 echo "Step 3: Checking for and creating Firestore database: ${FIRESTORE_DATABASE_ID}"
 if gcloud firestore databases describe --database=${FIRESTORE_DATABASE_ID} &> /dev/null; then
     echo "Firestore database '${FIRESTORE_DATABASE_ID}' already exists."
@@ -115,18 +115,31 @@ gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --role="roles/datastore.user" \
   --condition=None # Explicitly set no condition to avoid prompts
 
-# 7. Deploy the Cloud Run Service
-echo "Step 7: Deploying the Cloud Run Service '${SERVICE_NAME}'..."
-gcloud run deploy ${SERVICE_NAME} \
-  --source . \
-  --platform managed \
-  --no-cpu-throttling \
-  --min-instances 1 \
-  --max-instances 4 \
-  --region ${REGION} \
-  --no-allow-unauthenticated \
-  --service-account ${SERVICE_ACCOUNT_EMAIL} \
-  --set-env-vars FIRESTORE_DATABASE_ID="${FIRESTORE_DATABASE_ID}",MAX_DISTINCT_NATIONAL_IDS=3,DAY_PERIOD=1,WEEK_PERIOD=7,MONTH_PERIOD=30
+# 7. Build the container image using Google Cloud Build
+echo "Step 7: Building the container image..."
+IMAGE_URL="${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${SERVICE_NAME}"
+gcloud builds submit --tag ${IMAGE_URL}
+
+# 8. Deploy the Cloud Run Service using the service.yaml
+echo "Step 8: Deploying the Cloud Run Service '${SERVICE_NAME}'..."
+
+# Create a temporary service.yaml for deployment
+cp service.yaml service.yaml.tmp
+
+# Replace placeholders in the temporary service.yaml
+sed -i.bak "s/PROJECT_ID/${PROJECT_ID}/g" service.yaml.tmp
+sed -i.bak "s/REGION/${REGION}/g" service.yaml.tmp
+sed -i.bak "s/fraud-manager-backend-sa@PROJECT_ID.iam.gserviceaccount.com/${SERVICE_ACCOUNT_EMAIL}/g" service.yaml.tmp
+sed -i.bak "s|image: REGION-docker.pkg.dev/PROJECT_ID/cloud-run-source-deploy/fraud-manager-backend|image: ${IMAGE_URL}|g" service.yaml.tmp
+sed -i.bak "s/name: fraud-manager-backend/name: ${SERVICE_NAME}/g" service.yaml.tmp
+sed -i.bak "s/value: \"fraud-manager\"/value: \"${FIRESTORE_DATABASE_ID}\"/g" service.yaml.tmp
+
+# Deploy the service
+gcloud run services replace service.yaml.tmp --region ${REGION}
+
+# Clean up temporary files
+rm service.yaml.tmp
+rm service.yaml.tmp.bak
 
 # 8. Retrieve the service URL after deployment
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --platform managed --region ${REGION} --format="value(status.url)")
