@@ -16,18 +16,18 @@ kind: Service
 metadata:
   name: fraud-manager-backend
   annotations:
-    # Controls who can access the service. 'internal' means only from within the same project or VPC network.
-    # This corresponds to the --no-allow-unauthenticated flag.
-    run.googleapis.com/ingress: internal
+    # Set min and max instances for scaling
+    run.googleapis.com/minScale: "1"
+    # Allow direct access to the service from the internet
+    run.googleapis.com/ingress: all
 spec:
   template:
     metadata:
       annotations:
         # Do not throttle CPU when not processing requests
         run.googleapis.com/cpu-throttling: "false"
-        # Set min and max instances for scaling
-        autoscaling.knative.dev/minScale: "1"
-        autoscaling.knative.dev/maxScale: "4"
+        # Enable startup CPU boost
+        run.googleapis.com/startup-cpu-boost: "true"
     spec:
       # The service account for the service to use.
       serviceAccountName: fraud-manager-backend-sa@PROJECT_ID.iam.gserviceaccount.com # <-- Replace PROJECT_ID
