@@ -1,5 +1,6 @@
 from fastapi import FastAPI, BackgroundTasks, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 from google.cloud.firestore import AsyncClient
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -58,6 +59,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     the Pydantic models (e.g., a required field is missing). Instead of returning
     the default 422 error, it returns a JSON response formatted for Dialogflow CX.
     """
+    if request.url.path == "/queries/":
+        return await request_validation_exception_handler(request, exc)
     # Log the detailed validation errors for debugging
     logging.error(
         f"Request validation failed: {exc.errors()}",
