@@ -1,5 +1,0 @@
-feat: Update service configuration for external access and scaling
-
-- Changed ingress from `internal` to `all` to allow public access.
-- Updated autoscaling annotations to use `run.googleapis.com/minScale`.
-- Enabled startup CPU boost for better performance.
